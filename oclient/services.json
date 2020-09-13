@@ -1,0 +1,46 @@
+{
+	"strava": {
+		"client_id":          "STRAVA_CLIENT_ID",                                    
+		"client_secret":      "STRAVA_CLIENT_SECRET",
+		"authorize_endpoint": "https://www.strava.com/oauth/authorize",
+		"redirect_uri":       "http://localhost:8000/redirect",
+		"scope":              "activity:read_all",
+		"prompt":             "&approval_prompt=force",
+		"token_endpoint":     "https://www.strava.com/oauth/token",
+		"post_type":          "json",
+		"refresh_allowed":    "true"
+	},
+	"linkedin": {
+		"client_id":          "LINKEDIN_CLIENT_ID",  
+		"client_secret":      "LINKEDIN_CLIENT_SECRET", 
+		"authorize_endpoint": "https://www.linkedin.com/oauth/v2/authorization",
+		"redirect_uri":       "http://localhost:8000/redirect",
+		"scope":              "r_liteprofile%20r_emailaddress",
+		"prompt":             "",
+		"token_endpoint":     "https://www.linkedin.com/oauth/v2/accessToken",
+		"post_type":          "form",
+		"refresh_allowed":    "false"
+	},
+	"spotify": {
+		"client_id":          "SPOTIFY_CLIENT_ID", 
+		"client_secret":      "SPOTIFY_CLIENT_SECRET", 
+		"authorize_endpoint": "https://accounts.spotify.com/authorize",
+		"redirect_uri":       "http://localhost:8000/redirect",
+		"scope":              "user-top-read%20user-read-email%20playlist-modify-public",
+		"prompt":             "",
+		"token_endpoint":     "https://accounts.spotify.com/api/token",
+		"post_type":          "form",
+		"refresh_allowed":    "true"
+    },
+	"github": {
+		"client_id":          "GITHUB_CLIENT_ID", 
+		"client_secret":      "GITHUB_CLIENT_SECRET", 
+		"authorize_endpoint": "https://github.com/login/oauth/authorize",
+		"redirect_uri":       "http://localhost:8000/redirect",
+		"scope":              "repo",
+		"prompt":             "",
+		"token_endpoint":     "https://github.com/login/oauth/access_token",
+		"post_type":          "json",
+		"refresh_allowed":    "true"
+	}
+}

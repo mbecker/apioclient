@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <title>OClient</title>
+        <style>
+            body {
+              background-color: lightgray;
+            }
+        </style>
+        
+    </head>
+    <body>
+        <h1>OClient Authorize</h1>
+        <br>
+        <button onclick="getLink(`secret`, `strava`)">Code Authorize Strava</button>
+        <button onclick="getLink(`secret`,`linkedin`)">Code Authorize LinkedIn</button>
+        <button onclick="getLink(`pkce`,`linkedin`)">PKCE Authorize LinkedIn</button>
+        <button onclick="getLink(`pkce`,`spotify`)">PKCE Authorize Spotify</button>
+        <button onclick="getLink(`secret`,`github`)">Code Authorize Github</button>
+
+        <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+        <script>
+
+            function getLink(type, service) {
+                console.log(type, service)
+            // Make a request for a user with a given ID
+                axios.get('/authlink/'+ type + '/' + service)
+                .then((response) => {
+                    console.log(response.data)
+                    window.location.href=response.data
+                })
+                .catch(function (error) {
+                    console.log(error);
+                });
+            }
+        </script>
+
+    </body>
+</html>
