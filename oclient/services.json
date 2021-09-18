@@ -42,5 +42,28 @@
 		"token_endpoint":     "https://github.com/login/oauth/access_token",
 		"post_type":          "json",
 		"refresh_allowed":    "true"
-	}
+	},
+	"fitbit": {
+		"client_id":          "FITBIT_CLIENT_ID", 
+		"client_secret":      "FITBIT_CLIENT_SECRET", 
+		"authorize_endpoint": "https://www.fitbit.com/oauth2/authorize",
+		"redirect_uri":       "http://localhost:8000/redirect",
+		"scope":              "profile%20heartrate%20sleep",
+		"prompt":             "",
+		"token_endpoint":     "https://api.fitbit.com/oauth2/token",
+		"post_type":          "basic",
+		"refresh_allowed":    "true"
+	},
+	"oura": {
+		"client_id":          "OURA_CLIENT_ID", 
+		"client_secret":      "OURA_CLIENT_SECRET", 
+		"authorize_endpoint": "https://cloud.ouraring.com/oauth/authorize",
+		"redirect_uri":       "http://localhost:8000/redirect",
+		"scope":              "personal%20daily",
+		"prompt":             "",
+		"token_endpoint":     "https://api.ouraring.com/oauth/token",
+		"post_type":          "basic",
+		"refresh_allowed":    "true"
+	}	
+
 }

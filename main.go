@@ -2,8 +2,6 @@ package main
 
 import (
 	"fmt"
-	"github.com/exyzzy/oclient/oclient"
-	"github.com/gorilla/mux"
 	"html/template"
 	"io/ioutil"
 	"log"
@@ -11,6 +9,9 @@ import (
 	"net/url"
 	"os"
 	"path"
+
+	"github.com/exyzzy/oclient/oclient"
+	"github.com/gorilla/mux"
 )
 
 func main() {
@@ -34,6 +35,13 @@ func main() {
 	r.HandleFunc("/spotify/get/newreleases", SpotifyGetNewReleasesHandler)
 	r.HandleFunc("/spotify/put/rename", SpotifyPutRenameHandler)
 	r.HandleFunc("/github/get/user", GithubGetUserHandler)
+	r.HandleFunc("/fitbit/get/user", FitbitGetUserHandler)
+	r.HandleFunc("/fitbit/get/heartrate", FitbitGetHeartrateHandler)
+	r.HandleFunc("/fitbit/get/sleep", FitbitGetSleepHandler)
+	r.HandleFunc("/oura/get/user", OuraGetUserHandler)
+	r.HandleFunc("/oura/get/sleep", OuraGetSleepHandler)
+	r.HandleFunc("/oura/get/activity", OuraGetActivityHandler)
+	r.HandleFunc("/oura/get/readiness", OuraGetReadinessHandler)
 	http.Handle("/", r)
 	fmt.Println(">>>>>>> OClient started at:", port)
 	log.Fatal(http.ListenAndServe(":"+port, nil))
@@ -203,6 +211,124 @@ func GithubGetUserHandler(w http.ResponseWriter, r *http.Request) {
 
 	url := "https://api.github.com/user"
 	resp, err := oclient.ApiRequest(w, r, oclient.GITHUB, "GET", url, nil)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	defer resp.Body.Close()
+	body, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	fmt.Fprintln(w, string(body))
+}
+func FitbitGetUserHandler(w http.ResponseWriter, r *http.Request) {
+
+	url := "https://api.fitbit.com/1/user/-/profile.json"
+	resp, err := oclient.ApiRequest(w, r, oclient.FITBIT, "GET", url, nil)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	defer resp.Body.Close()
+	body, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	fmt.Fprintln(w, string(body))
+}
+
+func FitbitGetHeartrateHandler(w http.ResponseWriter, r *http.Request) {
+
+	url := "https://api.fitbit.com/1/user/-/activities/heart/date/today/1d/1sec.json"
+	resp, err := oclient.ApiRequest(w, r, oclient.FITBIT, "GET", url, nil)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	defer resp.Body.Close()
+	body, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	fmt.Fprintln(w, string(body))
+}
+
+func FitbitGetSleepHandler(w http.ResponseWriter, r *http.Request) {
+
+	url := "https://api.fitbit.com/1.2/user/-/sleep/date/2021-08-08.json?timezone=UTC"
+	resp, err := oclient.ApiRequest(w, r, oclient.FITBIT, "GET", url, nil)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	defer resp.Body.Close()
+	body, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	fmt.Fprintln(w, string(body))
+}
+
+func OuraGetUserHandler(w http.ResponseWriter, r *http.Request) {
+
+	url := "https://api.ouraring.com/v1/userinfo"
+	resp, err := oclient.ApiRequest(w, r, oclient.OURA, "GET", url, nil)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	defer resp.Body.Close()
+	body, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	fmt.Fprintln(w, string(body))
+}
+
+func OuraGetSleepHandler(w http.ResponseWriter, r *http.Request) {
+
+	url := "https://api.ouraring.com/v1/sleep"
+	resp, err := oclient.ApiRequest(w, r, oclient.OURA, "GET", url, nil)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	defer resp.Body.Close()
+	body, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	fmt.Fprintln(w, string(body))
+}
+
+func OuraGetActivityHandler(w http.ResponseWriter, r *http.Request) {
+
+	url := "https://api.ouraring.com/v1/activity"
+	resp, err := oclient.ApiRequest(w, r, oclient.OURA, "GET", url, nil)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	defer resp.Body.Close()
+	body, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	fmt.Fprintln(w, string(body))
+}
+
+func OuraGetReadinessHandler(w http.ResponseWriter, r *http.Request) {
+
+	url := "https://api.ouraring.com/v1/readiness"
+	resp, err := oclient.ApiRequest(w, r, oclient.OURA, "GET", url, nil)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return

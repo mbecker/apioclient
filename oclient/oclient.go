@@ -6,6 +6,8 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
+
 	// "fmt"
 	"io"
 	"io/ioutil"
@@ -23,6 +25,8 @@ const (
 	LINKEDIN  = "linkedin"
 	SPOTIFY   = "spotify"
 	GITHUB    = "github"
+	FITBIT    = "fitbit"
+	OURA      = "oura"
 	AUTHORIZE = "authorization_code"
 	REFRESH   = "refresh_token"
 	SECRET    = "secret"
@@ -204,7 +208,7 @@ func AuthLink(r *http.Request, authtype string, service string) (result string) 
 	result = services[service]["authorize_endpoint"]
 	result += "?client_id=" + services[service]["client_id"]
 	result += "&response_type=code&redirect_uri="
-	result += services[service]["redirect_uri"]
+	result += url.QueryEscape(services[service]["redirect_uri"])
 	result += "&scope=" + services[service]["scope"]
 	result += services[service]["prompt"]
 	if authtype == PKCE {
@@ -215,6 +219,7 @@ func AuthLink(r *http.Request, authtype string, service string) (result string) 
 	}
 	result += "&state=" + st
 	setState(st, &stData)
+	fmt.Println("Debug Authorize Link: ", result)
 	return
 }
 
@@ -332,6 +337,26 @@ func jsonPost(url string, body io.Reader) (resp *http.Response, err error) {
 	return client.Do(req)
 }
 
+func basicAuth(username, password string) string {
+	auth := username + ":" + password
+	return base64.StdEncoding.EncodeToString([]byte(auth))
+}
+
+func basicPost(url string, body io.Reader, ba string) (resp *http.Response, err error) {
+	var client = &http.Client{
+		Timeout: time.Second * 10,
+	}
+
+	req, err := http.NewRequest("POST", url, body)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Add("Authorization", "Basic "+ba)
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Accept", "application/json")
+	return client.Do(req)
+}
+
 //subtract a small delta from exires_at to account for transport time
 const DELTASECS = 5
 
@@ -363,6 +388,18 @@ func getToken(w http.ResponseWriter, r *http.Request, service string, tokType st
 	}
 	var resp *http.Response
 	switch services[service]["post_type"] {
+	case "basic":
+		form := url.Values{}
+		for k, v := range rParams {
+			form.Set(k, v)
+		}
+
+		basic := basicAuth(rParams["client_id"], rParams["client_secret"])
+
+		resp, err = basicPost(services[service]["token_endpoint"], strings.NewReader(form.Encode()), basic)
+		if err != nil {
+			return
+		}
 	case "json":
 		var requestBody []byte
 		requestBody, err = json.Marshal(rParams)
