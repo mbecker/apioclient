@@ -7,11 +7,12 @@ import (
 	"log"
 	"net/http"
 	"net/url"
-	"os"
 	"path"
 
-	"github.com/exyzzy/oclient/oclient"
+	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/template/html"
 	"github.com/gorilla/mux"
+	"github.com/mbecker/apioclient/oclient"
 )
 
 func main() {
@@ -19,32 +20,66 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	port := os.Getenv("PORT")
-	if port == "" {
-		port = "8000"
-	}
-	r := mux.NewRouter()
-	r.HandleFunc("/", PageHomeHandler)
-	r.HandleFunc("/page/api", PageApiHandler)
-	r.HandleFunc("/authlink/{authtype}/{service}", AuthlinkHandler)
-	r.HandleFunc("/redirect", RedirectHandler)
-	r.HandleFunc("/strava/get/athlete", StravaGetAthleteHandler)
-	r.HandleFunc("/strava/get/activities", StravaGetActivitiesHandler)
-	r.HandleFunc("/linkedin/get/me", LinkedinGetMeHandler)
-	r.HandleFunc("/spotify/get/me", SpotifyGetMeHandler)
-	r.HandleFunc("/spotify/get/newreleases", SpotifyGetNewReleasesHandler)
-	r.HandleFunc("/spotify/put/rename", SpotifyPutRenameHandler)
-	r.HandleFunc("/github/get/user", GithubGetUserHandler)
-	r.HandleFunc("/fitbit/get/user", FitbitGetUserHandler)
-	r.HandleFunc("/fitbit/get/heartrate", FitbitGetHeartrateHandler)
-	r.HandleFunc("/fitbit/get/sleep", FitbitGetSleepHandler)
-	r.HandleFunc("/oura/get/user", OuraGetUserHandler)
-	r.HandleFunc("/oura/get/sleep", OuraGetSleepHandler)
-	r.HandleFunc("/oura/get/activity", OuraGetActivityHandler)
-	r.HandleFunc("/oura/get/readiness", OuraGetReadinessHandler)
-	http.Handle("/", r)
-	fmt.Println(">>>>>>> OClient started at:", port)
-	log.Fatal(http.ListenAndServe(":"+port, nil))
+	// port := os.Getenv("PORT")
+	// if port == "" {
+	// 	port = "8000"
+	// }
+	// r := mux.NewRouter()
+	// r.HandleFunc("/", PageHomeHandler)
+	// r.HandleFunc("/page/api", PageApiHandler)
+	// r.HandleFunc("/authlink/{authtype}/{service}", AuthlinkHandler)
+	// r.HandleFunc("/redirect", RedirectHandler)
+	// r.HandleFunc("/strava/get/athlete", StravaGetAthleteHandler)
+	// r.HandleFunc("/strava/get/activities", StravaGetActivitiesHandler)
+	// r.HandleFunc("/linkedin/get/me", LinkedinGetMeHandler)
+	// r.HandleFunc("/spotify/get/me", SpotifyGetMeHandler)
+	// r.HandleFunc("/spotify/get/newreleases", SpotifyGetNewReleasesHandler)
+	// r.HandleFunc("/spotify/put/rename", SpotifyPutRenameHandler)
+	// r.HandleFunc("/github/get/user", GithubGetUserHandler)
+	// r.HandleFunc("/fitbit/get/user", FitbitGetUserHandler)
+	// r.HandleFunc("/fitbit/get/heartrate", FitbitGetHeartrateHandler)
+	// r.HandleFunc("/fitbit/get/sleep", FitbitGetSleepHandler)
+	// r.HandleFunc("/oura/get/user", OuraGetUserHandler)
+	// r.HandleFunc("/oura/get/sleep", OuraGetSleepHandler)
+	// r.HandleFunc("/oura/get/activity", OuraGetActivityHandler)
+	// r.HandleFunc("/oura/get/readiness", OuraGetReadinessHandler)
+	// http.Handle("/", r)
+	// fmt.Println(">>>>>>> OClient started at:", port)
+	// log.Fatal(http.ListenAndServe(":"+port, nil))
+
+	// Create a new engine by passing the template folder
+	// and template extension using <engine>.New(dir, ext string)
+	engine := html.New("./views", ".html")
+
+	// Reload the templates on each render, good for development
+	engine.Reload(true) // Optional. Default: false
+
+	// Debug will print each template that is parsed, good for debugging
+	engine.Debug(true) // Optional. Default: false
+
+	// Layout defines the variable name that is used to yield templates within layouts
+	engine.Layout("embed") // Optional. Default: "embed"
+
+	// Delims sets the action delimiters to the specified strings
+	engine.Delims("{{", "}}") // Optional. Default: engine delimiters
+
+	// AddFunc adds a function to the template's global function map.
+	engine.AddFunc("greet", func(name string) string {
+		return "Hello, " + name + "!"
+	})
+
+	// After you created your engine, you can pass it to Fiber's Views Engine
+	app := fiber.New(fiber.Config{
+		Views: engine,
+	})
+
+	app.Get("/", func(c *fiber.Ctx) error {
+		return c.Render("home", fiber.Map{
+			"Title": "Hello, World!",
+		})
+	})
+
+	app.Listen("pengun.linux.test:3000")
 	return
 }
 

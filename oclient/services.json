@@ -1,5 +1,5 @@
 {
-	"strava": {
+	"keycloak": {
 		"client_id":          "STRAVA_CLIENT_ID",                                    
 		"client_secret":      "STRAVA_CLIENT_SECRET",
 		"authorize_endpoint": "https://www.strava.com/oauth/authorize",
