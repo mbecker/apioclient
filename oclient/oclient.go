@@ -18,9 +18,13 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/MicahParks/keyfunc"
+	"github.com/golang-jwt/jwt/v4"
 )
 
 const (
+	KEYCLOAK  = "keycloak"
 	STRAVA    = "strava"
 	LINKEDIN  = "linkedin"
 	SPOTIFY   = "spotify"
@@ -53,18 +57,18 @@ func loadConfig(fname string, config *map[string]map[string]string) (err error) 
 		return
 	}
 	json.Unmarshal([]byte(byteValue), config)
-	for k, v := range *config {
-		v["client_id"] = os.Getenv(v["client_id"])
-		if v["client_id"] == "" {
-			err = errors.New("Missing service client_id for " + k)
-			return
-		}
-		v["client_secret"] = os.Getenv(v["client_secret"])
-		if v["client_id"] == "" {
-			err = errors.New("Missing service client_secret for " + k)
-			return
-		}
-	}
+	// for k, v := range *config {
+	// 	v["client_id"] = os.Getenv(v["client_id"])
+	// 	if v["client_id"] == "" {
+	// 		err = errors.New("Missing service client_id for " + k)
+	// 		return
+	// 	}
+	// 	v["client_secret"] = os.Getenv(v["client_secret"])
+	// 	if v["client_id"] == "" {
+	// 		err = errors.New("Missing service client_secret for " + k)
+	// 		return
+	// 	}
+	// }
 	return
 }
 
@@ -164,24 +168,36 @@ func setState(key string, value *State) {
 
 //== Cookie Helpers
 
-const CookiePrefix = "_OClient"
+const CookiePrefix = "OClient-"
 
 func cookieName(service string) string {
+	fmt.Printf("Cookie Name: %s\n", service)
 	return (CookiePrefix + service)
 }
 
 //generic cookie setter
-func setCookie(w http.ResponseWriter, token string, cookieName string) {
+func setCookie(w http.ResponseWriter, token string, email string, cookieName string) {
+	fmt.Printf("Set cookie: %s\n", cookieName)
 	tok64 := base64.StdEncoding.EncodeToString([]byte(token))
 	cookie := http.Cookie{
 		Name:     cookieName,
 		Value:    tok64,
-		HttpOnly: true,
-		Secure:   false, //use true for production
+		HttpOnly: false,
+		Secure:   true, //use true for production
 		Path:     "/",
 		SameSite: http.SameSiteLaxMode,
 	}
 	http.SetCookie(w, &cookie)
+	// cookie2 := http.Cookie{
+	// 	Name:     "email",
+	// 	Value:    email,
+	// 	HttpOnly: true,
+	// 	Secure:   false, //use true for production
+	// 	Path:     "/",
+	// 	SameSite: http.SameSiteLaxMode,
+	// }
+	// http.SetCookie(w, &cookie2)
+
 	return
 }
 
@@ -287,11 +303,12 @@ func setHeader(w http.ResponseWriter, r *http.Request, service string, newReq *h
 			return
 		}
 		var newToken string
-		newToken, err = getToken(w, r, service, REFRESH, refresh.(string), SECRET, "")
+		var email string
+		newToken, email, err = getToken(w, r, service, REFRESH, refresh.(string), SECRET, "")
 		if err != nil {
 			return
 		}
-		setCookie(w, newToken, cookieName(service)) //note: must set cookie before writing to responsewriter
+		setCookie(w, newToken, email, cookieName(service)) //note: must set cookie before writing to responsewriter
 		decoder = json.NewDecoder(strings.NewReader(newToken))
 		decoder.UseNumber()
 		tokMap = make(map[string]interface{})
@@ -315,11 +332,11 @@ func ExchangeCode(w http.ResponseWriter, r *http.Request, code string, state str
 		err = errors.New("State Key not found")
 		return
 	}
-	token, err := getToken(w, r, statePtr.Service, AUTHORIZE, code, statePtr.AuthType, statePtr.PkceVerifier)
+	token, email, err := getToken(w, r, statePtr.Service, AUTHORIZE, code, statePtr.AuthType, statePtr.PkceVerifier)
 	if err != nil {
 		return
 	}
-	setCookie(w, token, cookieName(statePtr.Service)) //note: must set cookie before writing to responsewriter
+	setCookie(w, token, email, cookieName(statePtr.Service)) //note: must set cookie before writing to responsewriter
 	return
 }
 
@@ -361,7 +378,7 @@ func basicPost(url string, body io.Reader, ba string) (resp *http.Response, err 
 const DELTASECS = 5
 
 //get a token from authorization endpoint
-func getToken(w http.ResponseWriter, r *http.Request, service string, tokType string, code string, authType string, verifier string) (result string, err error) {
+func getToken(w http.ResponseWriter, r *http.Request, service string, tokType string, code string, authType string, verifier string) (result string, email string, err error) {
 	rParams := map[string]string{
 		"client_id":    services[service]["client_id"],
 		"redirect_uri": services[service]["redirect_uri"],
@@ -461,6 +478,49 @@ func getToken(w http.ResponseWriter, r *http.Request, service string, tokType st
 		err = errors.New("json.Marshal: " + err.Error())
 		return
 	}
+	idt, ok := tokMap["id_token"]
+	if !ok {
+		err = errors.New("No id_token")
+		return
+	}
+	idtoken, ok := idt.(string)
+	if !ok {
+		err = errors.New("No id_token string")
+		return
+	}
+	// Get the JWKS URL from an environment variable.
+	jwksURL := "https://localhost/realms/azureapidev/protocol/openid-connect/certs"
+
+	// Confirm the environment variable is not empty.
+	if jwksURL == "" {
+		err = errors.New("JWKS_URL environment variable must be populated.")
+		return
+	}
+	// Create the JWKS from the resource at the given URL.
+	jwks, err := keyfunc.Get(jwksURL, keyfunc.Options{})
+	if err != nil {
+		err = fmt.Errorf("Failed to get the JWKS from the given URL.\nError:%s", err.Error())
+		return
+	}
+
+	token, err := jwt.ParseWithClaims(idtoken, &MyCustomClaims{}, jwks.Keyfunc)
+	if err != nil {
+		err = fmt.Errorf("failed to parse token: %w", err)
+		return
+	}
+	if !token.Valid {
+		fmt.Println("Token is not valid")
+	}
+	if claims, ok := token.Claims.(*MyCustomClaims); ok {
+		email = claims.Email
+	} else {
+		fmt.Println("No custom claims in token")
+	}
 	result = string(b)
 	return
+}
+
+type MyCustomClaims struct {
+	Email string `json:"email"`
+	jwt.StandardClaims
 }
