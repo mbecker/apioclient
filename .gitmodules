@@ -1,0 +1,3 @@
+[submodule "tailwind"]
+	path = tailwind
+	url = git@github.com:mbecker/tailwindstarter.git
