@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 
 	// "fmt"
 	"io"
@@ -21,32 +22,43 @@ import (
 
 	"github.com/MicahParks/keyfunc"
 	"github.com/golang-jwt/jwt/v4"
+	"github.com/gorilla/sessions"
 )
 
 const (
-	KEYCLOAK  = "keycloak"
-	STRAVA    = "strava"
-	LINKEDIN  = "linkedin"
-	SPOTIFY   = "spotify"
-	GITHUB    = "github"
-	FITBIT    = "fitbit"
-	OURA      = "oura"
-	AUTHORIZE = "authorization_code"
-	REFRESH   = "refresh_token"
-	SECRET    = "secret"
-	PKCE      = "pkce"
+	KEYCLOAK     = "keycloak"
+	STRAVA       = "strava"
+	LINKEDIN     = "linkedin"
+	SPOTIFY      = "spotify"
+	GITHUB       = "github"
+	FITBIT       = "fitbit"
+	OURA         = "oura"
+	AUTHORIZE    = "authorization_code"
+	REFRESH      = "refresh_token"
+	SECRET       = "secret"
+	PKCE         = "pkce"
+	SESSION_NAME = "oclient"
 )
 
-func InitOclient() error {
+type OClient struct {
+	services map[string]map[string]string
+	store    *sessions.CookieStore
+}
+
+func InitOclient(sessionKey string, servicesFile string) (*OClient, error) {
 	PkceInit()
-	return loadConfig("oclient/services.json", &services)
+
+	oclient := OClient{
+		services: map[string]map[string]string{},
+		store:    sessions.NewCookieStore([]byte(sessionKey)),
+	}
+	err := oclient.loadConfig(servicesFile)
+	return &oclient, err
 }
 
 //== Services
 
-var services map[string]map[string]string
-
-func loadConfig(fname string, config *map[string]map[string]string) (err error) {
+func (oclient *OClient) loadConfig(fname string) (err error) {
 	file, err := os.Open(fname)
 	if err != nil {
 		return
@@ -56,7 +68,7 @@ func loadConfig(fname string, config *map[string]map[string]string) (err error) 
 	if err != nil {
 		return
 	}
-	json.Unmarshal([]byte(byteValue), config)
+	json.Unmarshal([]byte(byteValue), &oclient.services)
 	// for k, v := range *config {
 	// 	v["client_id"] = os.Getenv(v["client_id"])
 	// 	if v["client_id"] == "" {
@@ -176,27 +188,51 @@ func cookieName(service string) string {
 }
 
 //generic cookie setter
-func setCookie(w http.ResponseWriter, token string, email string, cookieName string) {
+func (oclient *OClient) setCookie(w http.ResponseWriter, r *http.Request, token string, idToken string, cookieName string) {
 	fmt.Printf("Set cookie: %s\n", cookieName)
 	tok64 := base64.StdEncoding.EncodeToString([]byte(token))
+	idToken64 := base64.StdEncoding.EncodeToString([]byte(idToken))
+
+	fmt.Printf("Set cookie token: %s\n", token)
+	fmt.Printf("Set cookie value: %s\n", tok64)
 	cookie := http.Cookie{
 		Name:     cookieName,
 		Value:    tok64,
-		HttpOnly: false,
-		Secure:   true, //use true for production
+		HttpOnly: true,
+		Secure:   false, //use true for production
 		Path:     "/",
 		SameSite: http.SameSiteLaxMode,
 	}
 	http.SetCookie(w, &cookie)
-	// cookie2 := http.Cookie{
-	// 	Name:     "email",
-	// 	Value:    email,
-	// 	HttpOnly: true,
-	// 	Secure:   false, //use true for production
-	// 	Path:     "/",
-	// 	SameSite: http.SameSiteLaxMode,
-	// }
-	// http.SetCookie(w, &cookie2)
+	idTokenCookie := http.Cookie{
+		Name:     fmt.Sprintf("%s-id", cookieName),
+		Value:    idToken64,
+		HttpOnly: true,
+		Secure:   false, //use true for production
+		Path:     "/",
+		SameSite: http.SameSiteLaxMode,
+	}
+	http.SetCookie(w, &idTokenCookie)
+
+	kcClaims, err := parseIdToken(idToken)
+	if err != nil {
+		log.Println(err)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Get a session. We're ignoring the error resulted from decoding an
+	// existing session: Get() always returns a session, even if empty.
+	session, _ := oclient.store.Get(r, SESSION_NAME)
+	// Set some session values.
+	session.Values["email"] = kcClaims.Email
+	session.Values["isAuthenticated"] = true
+	// Save it before we write to the response/return from the handler.
+	err = session.Save(r, w)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
 
 	return
 }
@@ -215,18 +251,47 @@ func getCookie(r *http.Request, cookieName string) (token string, err error) {
 	return
 }
 
+func getCookieIdToken(r *http.Request, cookieName string) (token string, err error) {
+	cookie, err := r.Cookie(fmt.Sprintf("%s-id", cookieName))
+	if err != nil {
+		return
+	}
+	tokb, err := base64.StdEncoding.DecodeString(cookie.Value)
+	if err != nil {
+		return
+	}
+	token = string(tokb)
+	return
+}
+
+func (oclient *OClient) GetIdToken(r *http.Request) (email string, isAuthenticated bool, err error) {
+	session, err := oclient.store.Get(r, SESSION_NAME)
+	if err != nil {
+		return
+	}
+	emaill, ok := session.Values["email"].(string)
+	if ok {
+		email = emaill
+	}
+	isAuthenticatedd, ok := session.Values["isAuthenticated"].(bool)
+	if ok {
+		isAuthenticated = isAuthenticatedd
+	}
+	return
+}
+
 //== API Helpers
 
 //build service Code Authorize Link and save state as pkceVerifier (128)
-func AuthLink(r *http.Request, authtype string, service string) (result string) {
+func (oclient *OClient) AuthLink(r *http.Request, authtype string, service string) (result string) {
 	stData := State{Service: service, AuthType: authtype}
 	st := PkceVerifier(128)
-	result = services[service]["authorize_endpoint"]
-	result += "?client_id=" + services[service]["client_id"]
+	result = oclient.services[service]["authorize_endpoint"]
+	result += "?client_id=" + oclient.services[service]["client_id"]
 	result += "&response_type=code&redirect_uri="
-	result += url.QueryEscape(services[service]["redirect_uri"])
-	result += "&scope=" + services[service]["scope"]
-	result += services[service]["prompt"]
+	result += url.QueryEscape(oclient.services[service]["redirect_uri"])
+	result += "&scope=" + oclient.services[service]["scope"]
+	result += oclient.services[service]["prompt"]
 	if authtype == PKCE {
 		stData.PkceVerifier = PkceVerifier(128)
 		stData.PkceChallenge = PkceChallenge(stData.PkceVerifier)
@@ -235,12 +300,12 @@ func AuthLink(r *http.Request, authtype string, service string) (result string) 
 	}
 	result += "&state=" + st
 	setState(st, &stData)
-	fmt.Println("Debug Authorize Link: ", result)
+	fmt.Println("oclient - Debug Authorize Link: ", result)
 	return
 }
 
 //make call to a resource api, add oauth bearer token
-func ApiRequest(w http.ResponseWriter, r *http.Request, service, method, url string, data map[string]interface{}) (response *http.Response, err error) {
+func (oclient *OClient) ApiRequest(w http.ResponseWriter, r *http.Request, service, method, url string, data map[string]interface{}) (response *http.Response, err error) {
 	var client = &http.Client{
 		Timeout: time.Second * 10,
 	}
@@ -259,7 +324,7 @@ func ApiRequest(w http.ResponseWriter, r *http.Request, service, method, url str
 	if err != nil {
 		return
 	}
-	err = setHeader(w, r, service, request)
+	err = oclient.setHeader(w, r, service, request)
 	if err != nil {
 		err = errors.New("Unable to set Header: " + err.Error())
 		return
@@ -275,7 +340,7 @@ func epochSeconds() int64 {
 }
 
 //get Access Token via cookie, refresh if expired, set header bearer token
-func setHeader(w http.ResponseWriter, r *http.Request, service string, newReq *http.Request) (err error) {
+func (oclient *OClient) setHeader(w http.ResponseWriter, r *http.Request, service string, newReq *http.Request) (err error) {
 	token, err := getCookie(r, cookieName(service))
 	if err != nil {
 		return
@@ -293,7 +358,7 @@ func setHeader(w http.ResponseWriter, r *http.Request, service string, newReq *h
 		return
 	}
 	if epochSeconds() > expiresAt { //token has expired, refresh it
-		if services[service]["refresh_allowed"] == "false" {
+		if oclient.services[service]["refresh_allowed"] == "false" {
 			err = errors.New("Non-refreshable Token Expired, Re-authorize")
 			return
 		}
@@ -302,13 +367,12 @@ func setHeader(w http.ResponseWriter, r *http.Request, service string, newReq *h
 			err = errors.New("Refresh Token Not Found")
 			return
 		}
-		var newToken string
-		var email string
-		newToken, email, err = getToken(w, r, service, REFRESH, refresh.(string), SECRET, "")
+		var newToken, idToken string
+		newToken, idToken, err = oclient.getToken(w, r, service, REFRESH, refresh.(string), SECRET, "")
 		if err != nil {
 			return
 		}
-		setCookie(w, newToken, email, cookieName(service)) //note: must set cookie before writing to responsewriter
+		oclient.setCookie(w, r, newToken, idToken, cookieName(service)) //note: must set cookie before writing to responsewriter
 		decoder = json.NewDecoder(strings.NewReader(newToken))
 		decoder.UseNumber()
 		tokMap = make(map[string]interface{})
@@ -326,17 +390,17 @@ func setHeader(w http.ResponseWriter, r *http.Request, service string, newReq *h
 //== Access Token
 
 //exchange the Authorization Code for Access Token
-func ExchangeCode(w http.ResponseWriter, r *http.Request, code string, state string) (err error) {
+func (oclient *OClient) ExchangeCode(w http.ResponseWriter, r *http.Request, code string, state string) (err error) {
 	statePtr := getState(state)
 	if statePtr == nil {
 		err = errors.New("State Key not found")
 		return
 	}
-	token, email, err := getToken(w, r, statePtr.Service, AUTHORIZE, code, statePtr.AuthType, statePtr.PkceVerifier)
+	token, idToken, err := oclient.getToken(w, r, statePtr.Service, AUTHORIZE, code, statePtr.AuthType, statePtr.PkceVerifier)
 	if err != nil {
 		return
 	}
-	setCookie(w, token, email, cookieName(statePtr.Service)) //note: must set cookie before writing to responsewriter
+	oclient.setCookie(w, r, token, idToken, cookieName(statePtr.Service)) //note: must set cookie before writing to responsewriter
 	return
 }
 
@@ -378,10 +442,10 @@ func basicPost(url string, body io.Reader, ba string) (resp *http.Response, err 
 const DELTASECS = 5
 
 //get a token from authorization endpoint
-func getToken(w http.ResponseWriter, r *http.Request, service string, tokType string, code string, authType string, verifier string) (result string, email string, err error) {
+func (oclient *OClient) getToken(w http.ResponseWriter, r *http.Request, service string, tokType string, code string, authType string, verifier string) (result string, idToken string, err error) {
 	rParams := map[string]string{
-		"client_id":    services[service]["client_id"],
-		"redirect_uri": services[service]["redirect_uri"],
+		"client_id":    oclient.services[service]["client_id"],
+		"redirect_uri": oclient.services[service]["redirect_uri"],
 	}
 	switch tokType {
 	case AUTHORIZE:
@@ -396,7 +460,7 @@ func getToken(w http.ResponseWriter, r *http.Request, service string, tokType st
 	}
 	switch authType {
 	case SECRET:
-		rParams["client_secret"] = services[service]["client_secret"]
+		rParams["client_secret"] = oclient.services[service]["client_secret"]
 	case PKCE:
 		rParams["code_verifier"] = verifier
 	default:
@@ -404,7 +468,7 @@ func getToken(w http.ResponseWriter, r *http.Request, service string, tokType st
 		return
 	}
 	var resp *http.Response
-	switch services[service]["post_type"] {
+	switch oclient.services[service]["post_type"] {
 	case "basic":
 		form := url.Values{}
 		for k, v := range rParams {
@@ -413,7 +477,7 @@ func getToken(w http.ResponseWriter, r *http.Request, service string, tokType st
 
 		basic := basicAuth(rParams["client_id"], rParams["client_secret"])
 
-		resp, err = basicPost(services[service]["token_endpoint"], strings.NewReader(form.Encode()), basic)
+		resp, err = basicPost(oclient.services[service]["token_endpoint"], strings.NewReader(form.Encode()), basic)
 		if err != nil {
 			return
 		}
@@ -423,7 +487,7 @@ func getToken(w http.ResponseWriter, r *http.Request, service string, tokType st
 		if err != nil {
 			return
 		}
-		resp, err = jsonPost(services[service]["token_endpoint"], bytes.NewBuffer(requestBody))
+		resp, err = jsonPost(oclient.services[service]["token_endpoint"], bytes.NewBuffer(requestBody))
 		if err != nil {
 			return
 		}
@@ -433,7 +497,7 @@ func getToken(w http.ResponseWriter, r *http.Request, service string, tokType st
 		for k, v := range rParams {
 			vals.Set(k, v)
 		}
-		resp, err = http.PostForm(services[service]["token_endpoint"], vals)
+		resp, err = http.PostForm(oclient.services[service]["token_endpoint"], vals)
 		if err != nil {
 			return
 		}
@@ -451,7 +515,7 @@ func getToken(w http.ResponseWriter, r *http.Request, service string, tokType st
 		return
 	}
 	//check for expires_at
-	var tokMap map[string]interface{}
+	var tokMap KeycloakToken
 	decoder := json.NewDecoder(strings.NewReader(string(body)))
 	decoder.UseNumber()
 	err = decoder.Decode(&tokMap)
@@ -459,68 +523,104 @@ func getToken(w http.ResponseWriter, r *http.Request, service string, tokType st
 		err = errors.New("decoder.Decode: " + err.Error())
 		return
 	}
-	expire, exists := tokMap["expires_at"]
-
-	if exists {
-		result = string(body)
-		return
-	}
+	// #### WRITE JSON FILE
+	// file, _ := json.MarshalIndent(tokMap, "", " ")
+	// _ = ioutil.WriteFile("test.json", file, 0644)
+	// #### WRITE JSON FILE (END)
+	// TODO: Why does the flow exit if "expires_at" exists?
+	// expire, exists := tokMap["expires_at"]
+	// if exists {
+	// 	result = string(body)
+	// 	return
+	// }
 	var expiresIn int64
-	expire, exists = tokMap["expires_in"]
-	if !exists { //no expiration, so make it a year
-		expiresIn = 31536000
-	} else {
-		expiresIn, err = expire.(json.Number).Int64()
+	if tokMap.ExpiresIn == 0 { //no expiration, so make it a year
+		tokMap.ExpiresIn = 31536000
 	}
-	tokMap["expires_at"] = epochSeconds() + expiresIn - DELTASECS
+	tokMap.ExpiresAt = epochSeconds() + expiresIn - DELTASECS
+	// Deleting the tokMap.IDToken that the cookie value fits
+	idToken = tokMap.IDToken
+	tokMap.IDToken = ""
 	b, err := json.Marshal(tokMap)
 	if err != nil {
 		err = errors.New("json.Marshal: " + err.Error())
 		return
 	}
-	idt, ok := tokMap["id_token"]
-	if !ok {
-		err = errors.New("No id_token")
-		return
-	}
-	idtoken, ok := idt.(string)
-	if !ok {
-		err = errors.New("No id_token string")
-		return
-	}
+
+	result = string(b)
+	return
+}
+
+func parseIdToken(idToken string) (*KeycloakClaims, error) {
+	var kcClaims KeycloakClaims
 	// Get the JWKS URL from an environment variable.
 	jwksURL := "https://localhost/realms/azureapidev/protocol/openid-connect/certs"
 
 	// Confirm the environment variable is not empty.
 	if jwksURL == "" {
-		err = errors.New("JWKS_URL environment variable must be populated.")
-		return
+		return &kcClaims, errors.New("JWKS_URL environment variable must be populated.")
 	}
 	// Create the JWKS from the resource at the given URL.
 	jwks, err := keyfunc.Get(jwksURL, keyfunc.Options{})
 	if err != nil {
-		err = fmt.Errorf("Failed to get the JWKS from the given URL.\nError:%s", err.Error())
-		return
+		return &kcClaims, fmt.Errorf("Failed to get the JWKS from the given URL.\nError:%s", err.Error())
 	}
 
-	token, err := jwt.ParseWithClaims(idtoken, &MyCustomClaims{}, jwks.Keyfunc)
+	token, err := jwt.ParseWithClaims(idToken, &KeycloakClaims{}, jwks.Keyfunc)
 	if err != nil {
-		err = fmt.Errorf("failed to parse token: %w", err)
-		return
+		return &kcClaims, fmt.Errorf("failed to parse token: %w", err)
 	}
 	if !token.Valid {
-		fmt.Println("Token is not valid")
+		return &kcClaims, errors.New("Token is not valid")
 	}
-	if claims, ok := token.Claims.(*MyCustomClaims); ok {
-		email = claims.Email
-	} else {
-		fmt.Println("No custom claims in token")
+	kcClaimss, ok := token.Claims.(*KeycloakClaims)
+	if !ok {
+		return &kcClaims, errors.New("Claims are not of type KeyclokClaims")
 	}
-	result = string(b)
-	return
+	return kcClaimss, nil
 }
 
-type MyCustomClaims struct {
-	Email string `json:"email"`
+type KeycloakToken struct {
+	AccessToken      string `json:"access_token"`
+	ExpiresIn        int64  `json:"expires_in"`
+	ExpiresAt        int64  `json:"expires_at"`
+	IDToken          string `json:"id_token"`
+	NotBeforePolicy  int    `json:"not-before-policy"`
+	RefreshExpiresIn int    `json:"refresh_expires_in"`
+	RefreshToken     string `json:"refresh_token"`
+	Scope            string `json:"scope"`
+	SessionState     string `json:"session_state"`
+	TokenType        string `json:"token_type"`
+}
+
+type KeycloakClaims struct {
 	jwt.StandardClaims
+	Exp               int    `json:"exp,omitempty"`
+	Iat               int    `json:"iat,omitempty"`
+	AuthTime          int    `json:"auth_time,omitempty"`
+	Jti               string `json:"jti,omitempty"`
+	Iss               string `json:"iss,omitempty"`
+	Audience          string `json:"aud,omitempty"`
+	Sub               string `json:"sub,omitempty"`
+	Typ               string `json:"typ,omitempty"`
+	Azp               string `json:"azp,omitempty"`
+	SessionState      string `json:"session_state,omitempty"`
+	AtHash            string `json:"at_hash,omitempty"`
+	Acr               string `json:"acr,omitempty"`
+	Sid               string `json:"sid,omitempty"`
+	EmailVerified     bool   `json:"email_verified,omitempty"`
+	Name              string `json:"name,omitempty"`
+	PreferredUsername string `json:"preferred_username,omitempty"`
+	GivenName         string `json:"given_name,omitempty"`
+	FamilyName        string `json:"family_name,omitempty"`
+	Email             string `json:"email,omitempty"`
+}
+
+func (kc *KeycloakClaims) String() (string, error) {
+	var s string
+	b, err := json.Marshal(&kc)
+	if err != nil {
+		return s, err
+	}
+	return string(b), nil
 }

@@ -1,13 +1,14 @@
 {
 	"keycloak": {
-		"client_id":          "apioclient",                                    
-		"client_secret":      "jjlZIlITv3MGjAK4lYCKmVIow6zXXTN1",
+		"client_id": "apioclient",
+		"client_secret_penguin": "jjlZIlITv3MGjAK4lYCKmVIow6zXXTN1",
+		"client_secret": "K5ChoBFaT8wcPElvMGMOOjJHpR19P547",
 		"authorize_endpoint": "https://penguin.linux.test/realms/azureapidev/protocol/openid-connect/auth",
-		"redirect_uri":       "https://penguin.linux.test:3000/redirect",
-		"scope":              "openid profile email",
-		"prompt":             "",
-		"token_endpoint":     "https://localhost/realms/azureapidev/protocol/openid-connect/token",
-		"post_type":          "form",
-		"refresh_allowed":    "false"
+		"redirect_uri": "https://penguin.linux.test:3000/redirect",
+		"scope": "openid profile email",
+		"prompt": "",
+		"token_endpoint": "https://penguin.linux.test/realms/azureapidev/protocol/openid-connect/token",
+		"post_type": "form",
+		"refresh_allowed": "false"
 	}
 }

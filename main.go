@@ -11,11 +11,22 @@ import (
 	"path"
 
 	"github.com/gorilla/mux"
+	"github.com/joho/godotenv"
 	"github.com/mbecker/apioclient/oclient"
 )
 
+const (
+	SESSION_KEY = "SESSION_KEY"
+)
+
+var oc *oclient.OClient
+
 func main() {
-	err := oclient.InitOclient()
+	err := godotenv.Load()
+	if err != nil {
+		log.Fatal("Error loading .env file")
+	}
+	oc, err = oclient.InitOclient(os.Getenv(SESSION_KEY), "oclient/services.json")
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -44,7 +55,7 @@ func main() {
 	r.HandleFunc("/oura/get/readiness", OuraGetReadinessHandler)
 	http.Handle("/", r)
 	fmt.Println(">>>>>>> OClient started at:", port)
-	log.Fatal(http.ListenAndServeTLS(":"+port, "certs/localhost+3.pem", "certs/localhost+3-key.pem", nil))
+	log.Fatal(http.ListenAndServeTLS("penguin.linux.test:"+port, "certs/penguin.linux.test+3.pem", "certs/penguin.linux.test+3-key.pem", nil))
 
 	// Create a new engine by passing the template folder
 	// and template extension using <engine>.New(dir, ext string)
@@ -90,7 +101,7 @@ func PageApiHandler(w http.ResponseWriter, r *http.Request) {
 	pageHandler(w, r, nil, "views", "api.html")
 }
 
-func pageHandler(w http.ResponseWriter, r *http.Request, data interface{}, dir string, filenames ...string) {
+func pageHandler(w http.ResponseWriter, r *http.Request, data map[string]interface{}, dir string, filenames ...string) {
 	var files []string
 	for _, file := range filenames {
 		files = append(files, path.Join(dir, file))
@@ -100,6 +111,22 @@ func pageHandler(w http.ResponseWriter, r *http.Request, data interface{}, dir s
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+
+	// Session data
+	email, isAuthenticated, err := oc.GetIdToken(r)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if data == nil {
+		data = map[string]interface{}{}
+	}
+
+	data["email"] = email
+	data["isAuthenticated"] = isAuthenticated
+
+	log.Printf("Template / Session Data: %#v\n", data)
+
 	if err := tmpl.Execute(w, data); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -110,7 +137,8 @@ func AuthlinkHandler(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	authtype := vars["authtype"]
 	service := vars["service"]
-	authlink := oclient.AuthLink(r, authtype, service)
+	authlink := oc.AuthLink(r, authtype, service)
+	log.Println("AuthlinkHandler: " + authlink)
 	fmt.Fprintln(w, authlink)
 }
 
@@ -122,7 +150,7 @@ func RedirectHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	code := m.Get("code")
 	state := m.Get("state")
-	err = oclient.ExchangeCode(w, r, code, state) //do not write to w before this call
+	err = oc.ExchangeCode(w, r, code, state) //do not write to w before this call
 	if err != nil {
 		http.Error(w, "Exchange Failed: "+err.Error(), http.StatusInternalServerError)
 		return
@@ -136,7 +164,7 @@ func RedirectHandler(w http.ResponseWriter, r *http.Request) {
 func StravaGetAthleteHandler(w http.ResponseWriter, r *http.Request) {
 
 	url := "https://www.strava.com/api/v3/athlete"
-	resp, err := oclient.ApiRequest(w, r, oclient.STRAVA, "GET", url, nil)
+	resp, err := oc.ApiRequest(w, r, oclient.STRAVA, "GET", url, nil)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -153,7 +181,7 @@ func StravaGetAthleteHandler(w http.ResponseWriter, r *http.Request) {
 func StravaGetActivitiesHandler(w http.ResponseWriter, r *http.Request) {
 
 	url := "https://www.strava.com/api/v3/athlete/activities?page=1&per_page=30"
-	resp, err := oclient.ApiRequest(w, r, oclient.STRAVA, "GET", url, nil)
+	resp, err := oc.ApiRequest(w, r, oclient.STRAVA, "GET", url, nil)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -170,7 +198,7 @@ func StravaGetActivitiesHandler(w http.ResponseWriter, r *http.Request) {
 func LinkedinGetMeHandler(w http.ResponseWriter, r *http.Request) {
 
 	url := "https://api.linkedin.com/v2/me"
-	resp, err := oclient.ApiRequest(w, r, oclient.LINKEDIN, "GET", url, nil)
+	resp, err := oc.ApiRequest(w, r, oclient.LINKEDIN, "GET", url, nil)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -187,7 +215,7 @@ func LinkedinGetMeHandler(w http.ResponseWriter, r *http.Request) {
 func SpotifyGetMeHandler(w http.ResponseWriter, r *http.Request) {
 
 	url := "https://api.spotify.com/v1/me"
-	resp, err := oclient.ApiRequest(w, r, oclient.SPOTIFY, "GET", url, nil)
+	resp, err := oc.ApiRequest(w, r, oclient.SPOTIFY, "GET", url, nil)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -204,7 +232,7 @@ func SpotifyGetMeHandler(w http.ResponseWriter, r *http.Request) {
 func SpotifyGetNewReleasesHandler(w http.ResponseWriter, r *http.Request) {
 
 	url := "https://api.spotify.com/v1/browse/new-releases"
-	resp, err := oclient.ApiRequest(w, r, oclient.SPOTIFY, "GET", url, nil)
+	resp, err := oc.ApiRequest(w, r, oclient.SPOTIFY, "GET", url, nil)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -227,7 +255,7 @@ func SpotifyPutRenameHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	url := "https://api.spotify.com/v1/playlists/2RmnrZSPoYtVyjou7DU8We"
-	resp, err := oclient.ApiRequest(w, r, oclient.SPOTIFY, "PUT", url, data)
+	resp, err := oc.ApiRequest(w, r, oclient.SPOTIFY, "PUT", url, data)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -244,7 +272,7 @@ func SpotifyPutRenameHandler(w http.ResponseWriter, r *http.Request) {
 func GithubGetUserHandler(w http.ResponseWriter, r *http.Request) {
 
 	url := "https://api.github.com/user"
-	resp, err := oclient.ApiRequest(w, r, oclient.GITHUB, "GET", url, nil)
+	resp, err := oc.ApiRequest(w, r, oclient.GITHUB, "GET", url, nil)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -260,7 +288,7 @@ func GithubGetUserHandler(w http.ResponseWriter, r *http.Request) {
 func FitbitGetUserHandler(w http.ResponseWriter, r *http.Request) {
 
 	url := "https://api.fitbit.com/1/user/-/profile.json"
-	resp, err := oclient.ApiRequest(w, r, oclient.FITBIT, "GET", url, nil)
+	resp, err := oc.ApiRequest(w, r, oclient.FITBIT, "GET", url, nil)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -277,7 +305,7 @@ func FitbitGetUserHandler(w http.ResponseWriter, r *http.Request) {
 func FitbitGetHeartrateHandler(w http.ResponseWriter, r *http.Request) {
 
 	url := "https://api.fitbit.com/1/user/-/activities/heart/date/today/1d/1sec.json"
-	resp, err := oclient.ApiRequest(w, r, oclient.FITBIT, "GET", url, nil)
+	resp, err := oc.ApiRequest(w, r, oclient.FITBIT, "GET", url, nil)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -294,7 +322,7 @@ func FitbitGetHeartrateHandler(w http.ResponseWriter, r *http.Request) {
 func FitbitGetSleepHandler(w http.ResponseWriter, r *http.Request) {
 
 	url := "https://api.fitbit.com/1.2/user/-/sleep/date/2021-08-08.json?timezone=UTC"
-	resp, err := oclient.ApiRequest(w, r, oclient.FITBIT, "GET", url, nil)
+	resp, err := oc.ApiRequest(w, r, oclient.FITBIT, "GET", url, nil)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -311,7 +339,7 @@ func FitbitGetSleepHandler(w http.ResponseWriter, r *http.Request) {
 func OuraGetUserHandler(w http.ResponseWriter, r *http.Request) {
 
 	url := "https://api.ouraring.com/v1/userinfo"
-	resp, err := oclient.ApiRequest(w, r, oclient.OURA, "GET", url, nil)
+	resp, err := oc.ApiRequest(w, r, oclient.OURA, "GET", url, nil)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -328,7 +356,7 @@ func OuraGetUserHandler(w http.ResponseWriter, r *http.Request) {
 func OuraGetSleepHandler(w http.ResponseWriter, r *http.Request) {
 
 	url := "https://api.ouraring.com/v1/sleep"
-	resp, err := oclient.ApiRequest(w, r, oclient.OURA, "GET", url, nil)
+	resp, err := oc.ApiRequest(w, r, oclient.OURA, "GET", url, nil)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -345,7 +373,7 @@ func OuraGetSleepHandler(w http.ResponseWriter, r *http.Request) {
 func OuraGetActivityHandler(w http.ResponseWriter, r *http.Request) {
 
 	url := "https://api.ouraring.com/v1/activity"
-	resp, err := oclient.ApiRequest(w, r, oclient.OURA, "GET", url, nil)
+	resp, err := oc.ApiRequest(w, r, oclient.OURA, "GET", url, nil)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -362,7 +390,7 @@ func OuraGetActivityHandler(w http.ResponseWriter, r *http.Request) {
 func OuraGetReadinessHandler(w http.ResponseWriter, r *http.Request) {
 
 	url := "https://api.ouraring.com/v1/readiness"
-	resp, err := oclient.ApiRequest(w, r, oclient.OURA, "GET", url, nil)
+	resp, err := oc.ApiRequest(w, r, oclient.OURA, "GET", url, nil)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
