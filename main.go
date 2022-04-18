@@ -26,7 +26,7 @@ func main() {
 	if err != nil {
 		log.Fatal("Error loading .env file")
 	}
-	oc, err = oclient.InitOclient(os.Getenv(SESSION_KEY), "oclient/services.json")
+	oc, err = oclient.InitOclient(os.Getenv(SESSION_KEY), "services.json")
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -35,7 +35,10 @@ func main() {
 		port = "3000"
 	}
 	r := mux.NewRouter()
+	fs := http.FileServer(http.Dir("./tailwind/dist/"))
+	r.PathPrefix("/dist/").Handler(http.StripPrefix("/dist/", fs))
 	r.HandleFunc("/", PageHomeHandler)
+	r.HandleFunc("/signout", SignoutHandler)
 	r.HandleFunc("/page/api", PageApiHandler)
 	r.HandleFunc("/authlink/{authtype}/{service}", AuthlinkHandler)
 	r.HandleFunc("/redirect", RedirectHandler)
@@ -94,18 +97,26 @@ func main() {
 }
 
 func PageHomeHandler(w http.ResponseWriter, r *http.Request) {
-	pageHandler(w, r, nil, "views", "home.html")
+	pageHandler(w, r, nil, "index.html")
+}
+
+func SignoutHandler(w http.ResponseWriter, r *http.Request) {
+	oc.DeleteCookieSession(w, r)
+	http.Redirect(w, r, "/", 307)
+	return
 }
 
 func PageApiHandler(w http.ResponseWriter, r *http.Request) {
-	pageHandler(w, r, nil, "views", "api.html")
+	pageHandler(w, r, nil, "main.html")
 }
 
-func pageHandler(w http.ResponseWriter, r *http.Request, data map[string]interface{}, dir string, filenames ...string) {
+func pageHandler(w http.ResponseWriter, r *http.Request, data map[string]interface{}, filenames ...string) {
+	dir := "tailwind/src"
 	var files []string
 	for _, file := range filenames {
 		files = append(files, path.Join(dir, file))
 	}
+	files = append(files, path.Join(dir, "_colorspalette.html"))
 	tmpl, err := template.ParseFiles(files...)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)

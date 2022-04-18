@@ -53,6 +53,9 @@ func InitOclient(sessionKey string, servicesFile string) (*OClient, error) {
 		store:    sessions.NewCookieStore([]byte(sessionKey)),
 	}
 	err := oclient.loadConfig(servicesFile)
+	for k, v := range oclient.services {
+		log.Printf("Loadded config for: %s - %v", k, v)
+	}
 	return &oclient, err
 }
 
@@ -192,9 +195,6 @@ func (oclient *OClient) setCookie(w http.ResponseWriter, r *http.Request, token 
 	fmt.Printf("Set cookie: %s\n", cookieName)
 	tok64 := base64.StdEncoding.EncodeToString([]byte(token))
 	idToken64 := base64.StdEncoding.EncodeToString([]byte(idToken))
-
-	fmt.Printf("Set cookie token: %s\n", token)
-	fmt.Printf("Set cookie value: %s\n", tok64)
 	cookie := http.Cookie{
 		Name:     cookieName,
 		Value:    tok64,
@@ -229,6 +229,40 @@ func (oclient *OClient) setCookie(w http.ResponseWriter, r *http.Request, token 
 	session.Values["isAuthenticated"] = true
 	// Save it before we write to the response/return from the handler.
 	err = session.Save(r, w)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	return
+}
+
+func (oclient *OClient) DeleteCookieSession(w http.ResponseWriter, r *http.Request) {
+	cookieName := cookieName("keycloak")
+	cookie := http.Cookie{
+		Name:     cookieName,
+		Value:    "",
+		MaxAge:   -1,
+		HttpOnly: true,
+		Secure:   false, //use true for production
+		Path:     "/",
+		SameSite: http.SameSiteLaxMode,
+	}
+	http.SetCookie(w, &cookie)
+	idTokenCookie := http.Cookie{
+		Name:     fmt.Sprintf("%s-id", cookieName),
+		Value:    "",
+		MaxAge:   -1,
+		HttpOnly: true,
+		Secure:   false, //use true for production
+		Path:     "/",
+		SameSite: http.SameSiteLaxMode,
+	}
+	http.SetCookie(w, &idTokenCookie)
+
+	session, _ := oclient.store.Get(r, SESSION_NAME)
+	session.Options.MaxAge = -1
+	err := session.Save(r, w)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
