@@ -117,6 +117,10 @@ func pageHandler(w http.ResponseWriter, r *http.Request, data map[string]interfa
 		files = append(files, path.Join(dir, file))
 	}
 	files = append(files, path.Join(dir, "_colorspalette.html"))
+	files = append(files, path.Join(dir, "_header.html"))
+	files = append(files, path.Join(dir, "_sidebar.html"))
+	files = append(files, path.Join(dir, "_scripts.html"))
+
 	tmpl, err := template.ParseFiles(files...)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
