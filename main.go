@@ -58,7 +58,7 @@ func main() {
 	r.HandleFunc("/oura/get/readiness", OuraGetReadinessHandler)
 	http.Handle("/", r)
 	fmt.Println(">>>>>>> OClient started at:", port)
-	log.Fatal(http.ListenAndServeTLS("penguin.linux.test:"+port, "certs/penguin.linux.test+3.pem", "certs/penguin.linux.test+3-key.pem", nil))
+	log.Fatal(http.ListenAndServeTLS(":"+port, os.Getenv("CERT"), os.Getenv("CERT_KEY"), nil))
 
 	// Create a new engine by passing the template folder
 	// and template extension using <engine>.New(dir, ext string)

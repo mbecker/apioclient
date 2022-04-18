@@ -53,9 +53,6 @@ func InitOclient(sessionKey string, servicesFile string) (*OClient, error) {
 		store:    sessions.NewCookieStore([]byte(sessionKey)),
 	}
 	err := oclient.loadConfig(servicesFile)
-	for k, v := range oclient.services {
-		log.Printf("Loadded config for: %s - %v", k, v)
-	}
 	return &oclient, err
 }
 
@@ -72,18 +69,18 @@ func (oclient *OClient) loadConfig(fname string) (err error) {
 		return
 	}
 	json.Unmarshal([]byte(byteValue), &oclient.services)
-	// for k, v := range *config {
-	// 	v["client_id"] = os.Getenv(v["client_id"])
-	// 	if v["client_id"] == "" {
-	// 		err = errors.New("Missing service client_id for " + k)
-	// 		return
-	// 	}
-	// 	v["client_secret"] = os.Getenv(v["client_secret"])
-	// 	if v["client_id"] == "" {
-	// 		err = errors.New("Missing service client_secret for " + k)
-	// 		return
-	// 	}
-	// }
+	for k, v := range oclient.services {
+		v["client_id"] = os.Getenv(v["client_id"])
+		if v["client_id"] == "" {
+			err = errors.New("Missing service client_id for " + k)
+			return
+		}
+		v["client_secret"] = os.Getenv(v["client_secret"])
+		if v["client_id"] == "" {
+			err = errors.New("Missing service client_secret for " + k)
+			return
+		}
+	}
 	return
 }
 

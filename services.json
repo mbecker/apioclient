@@ -1,8 +1,8 @@
 {
 	"keycloak": {
-		"client_id": "apioclient",
+		"client_id": "KEYCLOAK_CLIENTID",
 		"client_secret_penguin": "jjlZIlITv3MGjAK4lYCKmVIow6zXXTN1",
-		"client_secret": "K5ChoBFaT8wcPElvMGMOOjJHpR19P547",
+		"client_secret": "KEYCLOAK_SECRET",
 		"authorize_endpoint": "https://penguin.linux.test/realms/azureapidev/protocol/openid-connect/auth",
 		"redirect_uri": "https://penguin.linux.test:3000/redirect",
 		"scope": "openid profile email",
