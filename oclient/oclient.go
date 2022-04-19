@@ -180,18 +180,27 @@ func setState(key string, value *State) {
 
 //== Cookie Helpers
 
-const CookiePrefix = "OClient-"
+const CookiePrefix = "oclient-"
 
 func cookieName(service string) string {
-	fmt.Printf("Cookie Name: %s\n", service)
 	return (CookiePrefix + service)
 }
 
 //generic cookie setter
-func (oclient *OClient) setCookie(w http.ResponseWriter, r *http.Request, token string, idToken string, cookieName string) {
-	fmt.Printf("Set cookie: %s\n", cookieName)
-	tok64 := base64.StdEncoding.EncodeToString([]byte(token))
-	idToken64 := base64.StdEncoding.EncodeToString([]byte(idToken))
+func (oclient *OClient) setCookie(w http.ResponseWriter, r *http.Request, kcToken *KeycloakToken, kcClaims *KeycloakClaims, cookieName string) {
+	tokens, err := kcToken.String()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	tok64 := base64.StdEncoding.EncodeToString([]byte(tokens))
+
+	idtokens, err := kcClaims.String()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	idToken64 := base64.StdEncoding.EncodeToString([]byte(idtokens))
 	cookie := http.Cookie{
 		Name:     cookieName,
 		Value:    tok64,
@@ -211,19 +220,18 @@ func (oclient *OClient) setCookie(w http.ResponseWriter, r *http.Request, token 
 	}
 	http.SetCookie(w, &idTokenCookie)
 
-	kcClaims, err := parseIdToken(idToken)
-	if err != nil {
-		log.Println(err)
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
 	// Get a session. We're ignoring the error resulted from decoding an
 	// existing session: Get() always returns a session, even if empty.
 	session, _ := oclient.store.Get(r, SESSION_NAME)
 	// Set some session values.
 	session.Values["email"] = kcClaims.Email
 	session.Values["isAuthenticated"] = true
+
+	log.Printf("SET COOKIE - Save keycloak token access token: %s\n", kcToken.AccessToken)
+	session.Values["token"] = &kcToken.AccessToken
+	// kc, _ := kcClaims.String()
+	// log.Printf("SET COOKIE - Save keycloak claims: %s\n", kc)
+	// session.Values["idtoken"] = kc
 	// Save it before we write to the response/return from the handler.
 	err = session.Save(r, w)
 	if err != nil {
@@ -269,7 +277,7 @@ func (oclient *OClient) DeleteCookieSession(w http.ResponseWriter, r *http.Reque
 }
 
 //generic cookie getter
-func getCookie(r *http.Request, cookieName string) (token string, err error) {
+func getCookie(r *http.Request, cookieName string) (kcToken *KeycloakToken, err error) {
 	cookie, err := r.Cookie(cookieName)
 	if err != nil {
 		return
@@ -278,7 +286,7 @@ func getCookie(r *http.Request, cookieName string) (token string, err error) {
 	if err != nil {
 		return
 	}
-	token = string(tokb)
+	kcToken, err = newKeycloakToken(string(tokb))
 	return
 }
 
@@ -295,7 +303,7 @@ func getCookieIdToken(r *http.Request, cookieName string) (token string, err err
 	return
 }
 
-func (oclient *OClient) GetIdToken(r *http.Request) (email string, isAuthenticated bool, err error) {
+func (oclient *OClient) GetIdToken(r *http.Request) (email string, isAuthenticated bool, token string, err error) {
 	session, err := oclient.store.Get(r, SESSION_NAME)
 	if err != nil {
 		return
@@ -307,6 +315,10 @@ func (oclient *OClient) GetIdToken(r *http.Request) (email string, isAuthenticat
 	isAuthenticatedd, ok := session.Values["isAuthenticated"].(bool)
 	if ok {
 		isAuthenticated = isAuthenticatedd
+	}
+	tokenn, ok := session.Values["token"].(string)
+	if ok {
+		token = tokenn
 	}
 	return
 }
@@ -371,51 +383,32 @@ func epochSeconds() int64 {
 }
 
 //get Access Token via cookie, refresh if expired, set header bearer token
-func (oclient *OClient) setHeader(w http.ResponseWriter, r *http.Request, service string, newReq *http.Request) (err error) {
-	token, err := getCookie(r, cookieName(service))
+func (oclient *OClient) setHeader(w http.ResponseWriter, r *http.Request, service string, newReq *http.Request) error {
+	kcToken, err := getCookie(r, cookieName(service))
 	if err != nil {
-		return
+		return err
 	}
-	var tokMap map[string]interface{}
 
-	// err = json.Unmarshal([]byte(token), &tokMap)
-	// normally as above, but we want numbers as ints vs floats
-	decoder := json.NewDecoder(strings.NewReader(token))
-	decoder.UseNumber()
-	err = decoder.Decode(&tokMap)
-
-	expiresAt, err := tokMap["expires_at"].(json.Number).Int64()
-	if err != nil {
-		return
-	}
-	if epochSeconds() > expiresAt { //token has expired, refresh it
+	if epochSeconds() > kcToken.ExpiresAt { //token has expired, refresh it
 		if oclient.services[service]["refresh_allowed"] == "false" {
-			err = errors.New("Non-refreshable Token Expired, Re-authorize")
-			return
+			return errors.New("Non-refreshable Token Expired, Re-authorize")
 		}
-		refresh, exists := tokMap["refresh_token"]
-		if !exists {
-			err = errors.New("Refresh Token Not Found")
-			return
+
+		if kcToken.RefreshToken == "" {
+			return errors.New("Refresh Token Not Found")
 		}
-		var newToken, idToken string
-		newToken, idToken, err = oclient.getToken(w, r, service, REFRESH, refresh.(string), SECRET, "")
+
+		kcToken, kcClaims, err := oclient.getToken(w, r, service, REFRESH, kcToken.RefreshToken, SECRET, "")
 		if err != nil {
-			return
+			return errors.New("Refresh Token Not Found")
 		}
-		oclient.setCookie(w, r, newToken, idToken, cookieName(service)) //note: must set cookie before writing to responsewriter
-		decoder = json.NewDecoder(strings.NewReader(newToken))
-		decoder.UseNumber()
-		tokMap = make(map[string]interface{})
-		err = decoder.Decode(&tokMap)
-		if err != nil {
-			return
-		}
+		oclient.setCookie(w, r, kcToken, kcClaims, cookieName(service)) //note: must set cookie before writing to responsewriter
+
 	}
-	newReq.Header.Add("Authorization", "Bearer "+tokMap["access_token"].(string))
+	newReq.Header.Add("Authorization", fmt.Sprintf("Bearer %s", kcToken.AccessToken))
 	newReq.Header.Set("Content-Type", "application/json")
 	newReq.Header.Set("Accept", "application/json")
-	return
+	return nil
 }
 
 //== Access Token
@@ -473,7 +466,7 @@ func basicPost(url string, body io.Reader, ba string) (resp *http.Response, err 
 const DELTASECS = 5
 
 //get a token from authorization endpoint
-func (oclient *OClient) getToken(w http.ResponseWriter, r *http.Request, service string, tokType string, code string, authType string, verifier string) (result string, idToken string, err error) {
+func (oclient *OClient) getToken(w http.ResponseWriter, r *http.Request, service string, tokType string, code string, authType string, verifier string) (kcToken *KeycloakToken, kcClaims *KeycloakClaims, err error) {
 	rParams := map[string]string{
 		"client_id":    oclient.services[service]["client_id"],
 		"redirect_uri": oclient.services[service]["redirect_uri"],
@@ -545,40 +538,22 @@ func (oclient *OClient) getToken(w http.ResponseWriter, r *http.Request, service
 		err = errors.New(string(body))
 		return
 	}
-	//check for expires_at
-	var tokMap KeycloakToken
-	decoder := json.NewDecoder(strings.NewReader(string(body)))
-	decoder.UseNumber()
-	err = decoder.Decode(&tokMap)
-	if err != nil {
-		err = errors.New("decoder.Decode: " + err.Error())
-		return
-	}
-	// #### WRITE JSON FILE
-	// file, _ := json.MarshalIndent(tokMap, "", " ")
-	// _ = ioutil.WriteFile("test.json", file, 0644)
-	// #### WRITE JSON FILE (END)
-	// TODO: Why does the flow exit if "expires_at" exists?
-	// expire, exists := tokMap["expires_at"]
-	// if exists {
-	// 	result = string(body)
-	// 	return
-	// }
-	var expiresIn int64
-	if tokMap.ExpiresIn == 0 { //no expiration, so make it a year
-		tokMap.ExpiresIn = 31536000
-	}
-	tokMap.ExpiresAt = epochSeconds() + expiresIn - DELTASECS
-	// Deleting the tokMap.IDToken that the cookie value fits
-	idToken = tokMap.IDToken
-	tokMap.IDToken = ""
-	b, err := json.Marshal(tokMap)
-	if err != nil {
-		err = errors.New("json.Marshal: " + err.Error())
-		return
-	}
 
-	result = string(b)
+	//Create new Keycloak Token
+	kcToken, err = newKeycloakToken(string(body))
+	if err != nil {
+		return
+	}
+	// Deleting the tokMap.IDToken that the cookie value fits
+	kcClaims, err = parseIdToken(kcToken.IDToken)
+	if err != nil {
+		return
+	}
+	kcToken.IDToken = ""
+
+	writeJsonFile("token.json", kcToken)
+	writeJsonFile("claims.json", kcClaims)
+
 	return
 }
 
@@ -622,6 +597,41 @@ type KeycloakToken struct {
 	Scope            string `json:"scope"`
 	SessionState     string `json:"session_state"`
 	TokenType        string `json:"token_type"`
+}
+
+func newKeycloakToken(body string) (*KeycloakToken, error) {
+	var kcToken KeycloakToken
+	decoder := json.NewDecoder(strings.NewReader(body))
+	decoder.UseNumber()
+	err := decoder.Decode(&kcToken)
+	if err != nil {
+		return &kcToken, errors.New("decoder.Decode: " + err.Error())
+	}
+	var expiresIn int64
+	if kcToken.ExpiresIn == 0 { //no expiration, so make it a year
+		kcToken.ExpiresIn = 31536000
+	}
+	kcToken.ExpiresAt = epochSeconds() + expiresIn - DELTASECS
+	return &kcToken, nil
+}
+
+func (kcToken *KeycloakToken) String() (string, error) {
+	b, err := json.Marshal(kcToken)
+	if err != nil {
+		err = errors.New("json.Marshal: " + err.Error())
+		return "", err
+	}
+	result := string(b)
+	return result, nil
+
+}
+
+func writeJsonFile(filename string, tok interface{}) {
+	// #### WRITE JSON FILE
+	file, _ := json.MarshalIndent(tok, "", " ")
+	_ = ioutil.WriteFile(filename, file, 0644)
+	// #### WRITE JSON FILE (END)
+
 }
 
 type KeycloakClaims struct {

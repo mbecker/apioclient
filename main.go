@@ -128,7 +128,7 @@ func pageHandler(w http.ResponseWriter, r *http.Request, data map[string]interfa
 	}
 
 	// Session data
-	email, isAuthenticated, err := oc.GetIdToken(r)
+	email, isAuthenticated, token, err := oc.GetIdToken(r)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -139,6 +139,7 @@ func pageHandler(w http.ResponseWriter, r *http.Request, data map[string]interfa
 
 	data["email"] = email
 	data["isAuthenticated"] = isAuthenticated
+	data["token"] = token
 
 	log.Printf("Template / Session Data: %#v\n", data)
 
