@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/gob"
 	"fmt"
 	"html/template"
 	"io/ioutil"
@@ -26,6 +27,7 @@ func main() {
 	if err != nil {
 		log.Fatal("Error loading .env file")
 	}
+
 	oc, err = oclient.InitOclient(os.Getenv(SESSION_KEY), "services.json")
 	if err != nil {
 		log.Fatal(err)
@@ -34,6 +36,10 @@ func main() {
 	if port == "" {
 		port = "3000"
 	}
+
+	// Register custom type for session handling
+	gob.Register(oclient.KeycloakClaims{})
+
 	r := mux.NewRouter()
 	fs := http.FileServer(http.Dir("./tailwind/dist/"))
 	r.PathPrefix("/dist/").Handler(http.StripPrefix("/dist/", fs))
@@ -128,7 +134,7 @@ func pageHandler(w http.ResponseWriter, r *http.Request, data map[string]interfa
 	}
 
 	// Session data
-	email, isAuthenticated, token, err := oc.GetIdToken(r)
+	kcClaims, isAuthenticated, token, err := oc.GetSession(r)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -137,11 +143,9 @@ func pageHandler(w http.ResponseWriter, r *http.Request, data map[string]interfa
 		data = map[string]interface{}{}
 	}
 
-	data["email"] = email
+	data["claims"] = kcClaims
 	data["isAuthenticated"] = isAuthenticated
 	data["token"] = token
-
-	log.Printf("Template / Session Data: %#v\n", data)
 
 	if err := tmpl.Execute(w, data); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)

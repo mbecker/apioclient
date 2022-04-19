@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
 
 	// "fmt"
 	"io"
@@ -37,7 +36,8 @@ const (
 	REFRESH      = "refresh_token"
 	SECRET       = "secret"
 	PKCE         = "pkce"
-	SESSION_NAME = "oclient"
+	SESSION_NAME = "oclient-session"
+	COOKIE_NAME  = "oclient-cookie"
 )
 
 type OClient struct {
@@ -180,10 +180,8 @@ func setState(key string, value *State) {
 
 //== Cookie Helpers
 
-const CookiePrefix = "oclient-"
-
 func cookieName(service string) string {
-	return (CookiePrefix + service)
+	return (COOKIE_NAME + "-" + service)
 }
 
 //generic cookie setter
@@ -224,14 +222,8 @@ func (oclient *OClient) setCookie(w http.ResponseWriter, r *http.Request, kcToke
 	// existing session: Get() always returns a session, even if empty.
 	session, _ := oclient.store.Get(r, SESSION_NAME)
 	// Set some session values.
-	session.Values["email"] = kcClaims.Email
+	session.Values["claims"] = kcClaims
 	session.Values["isAuthenticated"] = true
-
-	log.Printf("SET COOKIE - Save keycloak token access token: %s\n", kcToken.AccessToken)
-	session.Values["token"] = &kcToken.AccessToken
-	// kc, _ := kcClaims.String()
-	// log.Printf("SET COOKIE - Save keycloak claims: %s\n", kc)
-	// session.Values["idtoken"] = kc
 	// Save it before we write to the response/return from the handler.
 	err = session.Save(r, w)
 	if err != nil {
@@ -303,14 +295,14 @@ func getCookieIdToken(r *http.Request, cookieName string) (token string, err err
 	return
 }
 
-func (oclient *OClient) GetIdToken(r *http.Request) (email string, isAuthenticated bool, token string, err error) {
+func (oclient *OClient) GetSession(r *http.Request) (kcClaims *KeycloakClaims, isAuthenticated bool, token string, err error) {
 	session, err := oclient.store.Get(r, SESSION_NAME)
 	if err != nil {
 		return
 	}
-	emaill, ok := session.Values["email"].(string)
+	kcClaimss, ok := session.Values["claims"].(KeycloakClaims)
 	if ok {
-		email = emaill
+		kcClaims = &kcClaimss
 	}
 	isAuthenticatedd, ok := session.Values["isAuthenticated"].(bool)
 	if ok {
