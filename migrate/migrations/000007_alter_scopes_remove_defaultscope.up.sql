@@ -1,0 +1,2 @@
+ALTER TABLE scopes 
+DROP COLUMN IF EXISTS defaultscope;

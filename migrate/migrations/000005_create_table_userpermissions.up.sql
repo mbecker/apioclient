@@ -1,6 +1,7 @@
 CREATE TABLE IF NOT EXISTS userpermissions(
-   resourcescope_id integer,
+   uuid UUID,
+   resourcesscope_id integer REFERENCES resourcesscopes (resourcesscope_id),
    created_at timestamptz NOT NULL DEFAULT NOW(),
    updated_at timestamptz,
-   uuid UUID,PRIMARY KEY(resourcescope_id, uuid)
+   PRIMARY KEY(resourcesscope_id, uuid)
 );
