@@ -1,0 +1,1 @@
+export POSTGRESQL_URL='postgres://keycloak:password@localhost:5432/api?sslmode=disable'
