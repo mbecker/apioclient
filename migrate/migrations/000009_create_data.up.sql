@@ -16,7 +16,21 @@ INSERT INTO public.resources(name, type, tenant_id)
 		-- 5
 		('huk:car', 'org:team', 1),
 		-- 6
-		('huk:car:service1', 'org:team:service', 1);
+		('huk:car:service1', 'org:team:service', 1),
+		-- 7
+		('ruv:kompass:nord', 'org:team:service', 1),
+		-- 8
+		('ruv:kompass:süd', 'org:team:service', 1),
+		-- 9
+		('ruv:kompass:west', 'org:team:service', 1),
+		-- 10
+		('ruv:kompass:ost', 'org:team:service', 1),
+		-- 11
+		('ruv:kompass:ost:berlin', 'org:team:service:city', 1),
+		-- 12
+		('ruv:indianer', 'org:team', 1),
+		-- 13
+		('aok', 'org', 1);
 
 -- resource_id: 2
 -- INSERT INTO public.resources(name, type) VALUES  ('ruv:kompass', 'org:team');
